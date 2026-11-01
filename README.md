@@ -12,6 +12,7 @@
 | 10 | CPI и вывод: сжигание долей, возврат токенов с подписью PDA | ✅ |
 | 11 | AMM и концентрированная ликвидность: свои токены и CLMM-пул Raydium | ✅ |
 | 12 | Swap токенов vault через CLMM-пул Raydium с min_amount_out | ✅ |
+| 13 | Позиция vault в CLMM: открыть в диапазоне, собрать комиссии, закрыть, переставить | ✅ |
 
 ## Аккаунты
 
@@ -21,6 +22,8 @@
 | Share-токен vault | Mint-PDA, mint authority = vault | `["shares", vault]` |
 | Хранилище underlying | ATA vault | ATA(`underlying_mint`, `vault`) |
 | `UserPosition` — PDA пользователя | PDA | `["position", vault, owner]` |
+| `VaultClmmPosition` — активная позиция vault в пуле Raydium | PDA | `["clmm_position", vault]` |
+| Position authority — владелец NFT позиции (без данных) | PDA | `["position_authority", vault]` |
 
 ## Инструкции
 
@@ -32,6 +35,9 @@
 | `deposit(amount, min_shares_out)` | Переводит underlying в хранилище vault и минтит пользователю share-токены |
 | `withdraw(shares, min_amount_out)` | Сжигает share-токены и возвращает пользователю его долю underlying |
 | `swap_via_clmm(amount_in, min_amount_out, sqrt_price_limit_x64)` | Только `authority`: обмен токенов vault через CLMM-пул Raydium |
+| `open_clmm_position(tick_lower, tick_upper, ..., amount0_max, amount1_max, base_flag)` | Только `authority`: позиция vault в CLMM-пуле в заданном диапазоне |
+| `collect_fees()` | Только `authority`: забрать накопленные комиссии позиции на vault |
+| `close_clmm_position(amount0_min, amount1_min, only_if_out_of_range)` | Только `authority`: закрыть позицию, вернуть ликвидность на vault |
 
 Share-mint создаётся как PDA, и его mint authority — тоже PDA vault, поэтому выпускать
 доли может только сама программа. Адрес пула ликвидности (`liquidity_pool`) пока пустой —
@@ -87,10 +93,12 @@ programs/liquidity-vault/src/
 ├── state.rs            # VaultConfig, UserPosition
 ├── math.rs             # конвертация underlying <-> shares (+ unit-тесты)
 ├── constants.rs, errors.rs, events.rs
-└── instructions/       # initialize_vault, update_config, open_position, deposit, withdraw, swap
+└── instructions/       # initialize_vault, update_config, open_position, deposit, withdraw, swap, clmm_position
 client/clmm.ts            # хелперы Raydium CLMM: PDA, цена <-> sqrtPriceX64 <-> тик
 client/raydium.ts         # действия с пулом: create_pool, позиция LP, remaining accounts для swap
-idls/raydium_clmm.json    # IDL Raydium CLMM (из devnet, сконвертирован в формат Anchor 0.30+)
+client/vault.ts           # позиция vault: open / collect / close / rebalance
+client/idl/raydium_clmm.json  # полный IDL Raydium CLMM для TS-клиента
+idls/raydium_clmm.json    # IDL Raydium для declare_program! (только нужные аккаунты)
 scripts/                  # скрипты для devnet
 docs/amm-clmm.md          # конспект: AMM, концентрированная ликвидность, устройство Raydium CLMM
 tests/
@@ -114,7 +122,7 @@ solana program dump -u devnet devi51mZmdwUJGU9hjN27vEz64Gps7uUefqxg27EAtH tests/
 solana program dump -u devnet metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s tests/fixtures/mpl_token_metadata.so
 solana account -u devnet B9H7TR8PSjJT7nuW2tuPkFC63z7drtMZ4LoCtD7PrCN1 --output json -o tests/fixtures/amm_config.json
 anchor idl fetch devi51mZmdwUJGU9hjN27vEz64Gps7uUefqxg27EAtH --provider.cluster devnet > raw.json
-anchor idl convert raw.json --program-id devi51mZmdwUJGU9hjN27vEz64Gps7uUefqxg27EAtH -o idls/raydium_clmm.json
+anchor idl convert raw.json --program-id devi51mZmdwUJGU9hjN27vEz64Gps7uUefqxg27EAtH -o client/idl/raydium_clmm.json
 ```
 
 **Devnet.** Скрипт создаёт два тестовых токена, CLMM-пул с ценой 1:1 и стартовую позицию
@@ -150,6 +158,53 @@ yarn ts-node scripts/devnet-create-pool.ts
 
 > Пока стоимость vault (`total_assets`) считается только по underlying на балансе vault:
 > учёт парного токена и позиций в пуле добавится вместе с размещением ликвидности.
+
+## Позиция vault в CLMM-пуле
+
+Vault размещает свои токены в CLMM-пуле Raydium в выбранном ценовом диапазоне
+(одна активная позиция на vault, запись `VaultClmmPosition`).
+
+**Кто владеет позицией.** Позиция Raydium — это NFT. В `open_position_v2` Raydium использует
+`payer` и для оплаты ренты новых аккаунтов (через System program), и как владельца
+вносимых токенов. PDA vault — аккаунт программы с данными, System program не может списывать
+с него SOL. Поэтому позицией управляет отдельный PDA без данных
+`["position_authority", vault]`: он владеет NFT и подписывает все CPI в Raydium.
+
+**open_clmm_position**
+1. `position_authority` пополняется SOL от authority (до 0.2 SOL) на ренту NFT, позиции и tick arrays.
+2. Vault переводит `amount0_max` / `amount1_max` на токен-аккаунты `position_authority`.
+3. CPI `open_position_v2` с `liquidity = 0` и `base_flag`: Raydium сам считает ликвидность `L`
+   из base-токена и берёт второй токен по текущей цене (не больше `amount*_max`).
+4. Неиспользованный остаток сразу возвращается на vault; `L` записывается в `VaultClmmPosition`.
+
+**collect_fees** — CPI `decrease_liquidity_v2` с `liquidity = 0`: ликвидность не меняется,
+накопленные комиссии в обоих токенах приходят на токен-аккаунты vault.
+Суммы копятся в `fees_collected0/1`.
+
+**close_clmm_position(amount0_min, amount1_min, only_if_out_of_range)**
+1. CPI `decrease_liquidity_v2` на всю ликвидность (минимумы — защита от проскальзывания),
+   токены и комиссии приходят на vault.
+2. CPI `close_position`: NFT сжигается, аккаунт позиции Raydium закрывается.
+3. Запись `VaultClmmPosition` закрывается — можно открыть новую позицию.
+
+С `only_if_out_of_range = true` программа сама читает `tick_current` пула и разрешает
+закрытие, только если цена вышла из диапазона `[tick_lower, tick_upper)` (иначе `PositionInRange`).
+
+**Ребаланс** (`rebalanceIfOutOfRange` в [`client/vault.ts`](client/vault.ts)):
+цена вышла из диапазона → позиция целиком в одном токене и не зарабатывает комиссии, поэтому
+1. `close_clmm_position(only_if_out_of_range = true)`;
+2. `swap_via_clmm` выравнивает стоимость токенов примерно 50/50 по текущей цене;
+3. `open_clmm_position` в новом диапазоне ±`halfWidth` тиков вокруг текущей цены.
+
+Ребаланс — это несколько транзакций: открытие и закрытие позиции вместе не помещаются
+в одну транзакцию (лимит 1232 байта). Открытие позиции и так занимает почти весь лимит,
+поэтому authority должен сам платить комиссию транзакции (без отдельного fee payer);
+для продакшена стоит использовать Address Lookup Tables.
+
+Для `declare_program!` используется урезанный IDL (`idls/raydium_clmm.json`, из аккаунтов только
+`PersonalPositionState`): сгенерированные десериализаторы больших аккаунтов Raydium
+(`TickArrayState`, `ObservationState`) не помещаются в стек SBF. Поля `PoolState` и
+`PersonalPositionState` программа читает по смещениям с проверкой владельца, дискриминатора и NFT.
 
 ## Запуск
 

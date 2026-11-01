@@ -2,7 +2,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Idl, Program } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
-import raydiumIdl from "../idls/raydium_clmm.json";
+import raydiumIdl from "./idl/raydium_clmm.json";
 
 /** Raydium CLMM в devnet (в localnet подгружается из tests/fixtures). */
 export const CLMM_PROGRAM_ID = new PublicKey(raydiumIdl.address);

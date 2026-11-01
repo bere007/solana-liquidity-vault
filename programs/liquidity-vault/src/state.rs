@@ -38,3 +38,23 @@ pub struct UserPosition {
     pub last_action_ts: i64,
     pub bump: u8,
 }
+
+/// Активная позиция vault в CLMM-пуле Raydium. PDA: ["clmm_position", vault].
+///
+/// NFT позиции принадлежит PDA ["position_authority", vault].
+#[account]
+#[derive(InitSpace)]
+pub struct VaultClmmPosition {
+    pub vault: Pubkey,
+    pub pool: Pubkey,
+    pub nft_mint: Pubkey,
+    pub tick_lower: i32,
+    pub tick_upper: i32,
+    /// Ликвидность L на момент открытия.
+    pub liquidity: u128,
+    pub opened_at: i64,
+    /// Собранные комиссии за время жизни позиции.
+    pub fees_collected0: u64,
+    pub fees_collected1: u64,
+    pub bump: u8,
+}

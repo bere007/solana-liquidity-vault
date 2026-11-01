@@ -22,4 +22,10 @@ pub enum VaultError {
     MinAmountOutRequired,
     #[msg("Входной и выходной токен совпадают")]
     SameMint,
+    #[msg("Нижняя граница диапазона должна быть меньше верхней")]
+    InvalidTickRange,
+    #[msg("Цена внутри диапазона позиции: ребаланс не нужен")]
+    PositionInRange,
+    #[msg("Аккаунт позиции Raydium не соответствует позиции vault")]
+    WrongPosition,
 }

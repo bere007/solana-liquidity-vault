@@ -63,4 +63,45 @@ pub mod liquidity_vault {
     ) -> Result<()> {
         instructions::swap::handler(ctx, amount_in, min_amount_out, sqrt_price_limit_x64)
     }
+
+    /// Открыть позицию vault в CLMM-пуле Raydium в диапазоне [tick_lower, tick_upper)
+    /// (только authority). Ликвидность считается из base-токена (`base_flag`: true — token0).
+    #[allow(clippy::too_many_arguments)]
+    pub fn open_clmm_position(
+        ctx: Context<OpenClmmPosition>,
+        tick_lower: i32,
+        tick_upper: i32,
+        tick_array_lower_start: i32,
+        tick_array_upper_start: i32,
+        amount0_max: u64,
+        amount1_max: u64,
+        base_flag: bool,
+    ) -> Result<()> {
+        instructions::clmm_position::open_handler(
+            ctx,
+            tick_lower,
+            tick_upper,
+            tick_array_lower_start,
+            tick_array_upper_start,
+            amount0_max,
+            amount1_max,
+            base_flag,
+        )
+    }
+
+    /// Собрать накопленные комиссии позиции на vault (только authority).
+    pub fn collect_fees(ctx: Context<ManageClmmPosition>) -> Result<()> {
+        instructions::clmm_position::collect_fees_handler(ctx)
+    }
+
+    /// Закрыть позицию: ликвидность и комиссии возвращаются на vault (только authority).
+    /// `only_if_out_of_range` — закрыть только если цена вышла из диапазона (ребаланс).
+    pub fn close_clmm_position(
+        ctx: Context<ManageClmmPosition>,
+        amount0_min: u64,
+        amount1_min: u64,
+        only_if_out_of_range: bool,
+    ) -> Result<()> {
+        instructions::clmm_position::close_handler(ctx, amount0_min, amount1_min, only_if_out_of_range)
+    }
 }

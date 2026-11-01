@@ -1410,45 +1410,6 @@
   ],
   "accounts": [
     {
-      "name": "AmmConfig",
-      "discriminator": [
-        218,
-        244,
-        33,
-        104,
-        203,
-        203,
-        43,
-        111
-      ]
-    },
-    {
-      "name": "OperationState",
-      "discriminator": [
-        19,
-        236,
-        58,
-        237,
-        81,
-        222,
-        183,
-        252
-      ]
-    },
-    {
-      "name": "ObservationState",
-      "discriminator": [
-        122,
-        174,
-        197,
-        53,
-        129,
-        9,
-        165,
-        132
-      ]
-    },
-    {
       "name": "PersonalPositionState",
       "discriminator": [
         70,
@@ -1459,58 +1420,6 @@
         15,
         25,
         117
-      ]
-    },
-    {
-      "name": "PoolState",
-      "discriminator": [
-        247,
-        237,
-        227,
-        245,
-        215,
-        195,
-        222,
-        70
-      ]
-    },
-    {
-      "name": "ProtocolPositionState",
-      "discriminator": [
-        100,
-        226,
-        145,
-        99,
-        146,
-        218,
-        160,
-        106
-      ]
-    },
-    {
-      "name": "TickArrayState",
-      "discriminator": [
-        192,
-        155,
-        85,
-        205,
-        49,
-        249,
-        129,
-        42
-      ]
-    },
-    {
-      "name": "TickArrayBitmapExtension",
-      "discriminator": [
-        60,
-        150,
-        36,
-        219,
-        97,
-        128,
-        139,
-        153
       ]
     }
   ],
