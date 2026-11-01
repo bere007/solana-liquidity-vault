@@ -59,6 +59,23 @@ describe("liquidity-vault", () => {
       .signers([user])
       .rpc();
 
+  const withdraw = (user: Keypair, shares: number, minOut = 0, shareAccountOwner = user.publicKey) =>
+    program.methods
+      .withdraw(new BN(shares), new BN(minOut))
+      .accountsPartial({
+        owner: user.publicKey,
+        vault,
+        userPosition: positionPda(user.publicKey),
+        underlyingMint,
+        shareMint,
+        vaultTokenAccount,
+        userTokenAccount: userAta(underlyingMint, user.publicKey),
+        userShareAccount: userAta(shareMint, shareAccountOwner),
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([user])
+      .rpc();
+
   const airdrop = async (to: PublicKey) => {
     const sig = await connection.requestAirdrop(to, 2 * LAMPORTS_PER_SOL);
     const bh = await connection.getLatestBlockhash();
@@ -262,6 +279,50 @@ describe("liquidity-vault", () => {
     );
   });
 
+  it("withdraw: сжигает доли и возвращает долю активов", async () => {
+    // Сейчас в vault 400 активов на ~200 долей (Alice 150, Bob ~50).
+    const tokensBefore = await balance(userAta(underlyingMint, alice.publicKey));
+    const supplyBefore = Number((await getMint(connection, shareMint)).supply);
+
+    await withdraw(alice, 50 * ONE);
+
+    const received = (await balance(userAta(underlyingMint, alice.publicKey))) - tokensBefore;
+    assert.approximately(received, 100 * ONE, 2, "50 долей по цене ~2 -> ~100 токенов");
+    assert.equal(await balance(userAta(shareMint, alice.publicKey)), 100 * ONE);
+    assert.equal(Number((await getMint(connection, shareMint)).supply), supplyBefore - 50 * ONE);
+
+    const pos = await program.account.userPosition.fetch(positionPda(alice.publicKey));
+    assert.equal(pos.totalWithdrawn.toNumber(), received);
+  });
+
+  it("withdraw: нулевое количество долей отклоняется", async () => {
+    await expectError(withdraw(alice, 0), "ZeroAmount");
+  });
+
+  it("withdraw: slippage-защита min_amount_out", async () => {
+    await expectError(withdraw(alice, 10 * ONE, 25 * ONE), "SlippageExceeded");
+  });
+
+  it("withdraw: нельзя сжечь больше долей, чем есть", async () => {
+    // Token program отклоняет burn: insufficient funds (0x1)
+    await expectError(withdraw(alice, 101 * ONE), "0x1");
+  });
+
+  it("withdraw: нельзя выводить чужие доли", async () => {
+    await expectError(withdraw(bob, 1 * ONE, 0, alice.publicKey), "ConstraintTokenOwner");
+  });
+
+  it("withdraw: полный вывод обнуляет доли пользователя", async () => {
+    const shares = await balance(userAta(shareMint, bob.publicKey));
+    const tokensBefore = await balance(userAta(underlyingMint, bob.publicKey));
+
+    await withdraw(bob, shares);
+
+    assert.equal(await balance(userAta(shareMint, bob.publicKey)), 0);
+    // Bob вносил 100 после роста цены доли -> получает обратно ~100
+    assert.approximately((await balance(userAta(underlyingMint, bob.publicKey))) - tokensBefore, 100 * ONE, 2);
+  });
+
   it("update_config: чужой authority отклоняется", async () => {
     await expectError(
       program.methods
@@ -295,6 +356,12 @@ describe("liquidity-vault", () => {
     assert.equal(cfg.feeBps, 250);
     assert.equal(cfg.depositCap.toNumber(), 5_000 * ONE);
     assert.ok(cfg.liquidityPool.equals(pool));
+  });
+
+  it("withdraw: на паузе вывод разрешён", async () => {
+    const before = await balance(userAta(shareMint, alice.publicKey));
+    await withdraw(alice, 10 * ONE);
+    assert.equal(await balance(userAta(shareMint, alice.publicKey)), before - 10 * ONE);
   });
 
   it("deposit: на паузе отклоняется, после снятия паузы снова работает", async () => {

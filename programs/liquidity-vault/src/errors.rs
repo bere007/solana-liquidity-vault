@@ -12,7 +12,7 @@ pub enum VaultError {
     DepositCapExceeded,
     #[msg("Результат меньше минимально допустимого (slippage)")]
     SlippageExceeded,
-    #[msg("Слишком маленькая сумма: получается 0 долей")]
+    #[msg("Слишком маленькая сумма: получается 0 долей/токенов")]
     AmountTooSmall,
     #[msg("Арифметическое переполнение")]
     MathOverflow,

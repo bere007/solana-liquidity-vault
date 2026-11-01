@@ -1,4 +1,4 @@
-//! Конвертация underlying -> shares.
+//! Конвертация underlying <-> shares.
 //!
 //! Используется «виртуальный» сдвиг на 1 (как в ERC-4626 OpenZeppelin):
 //! первый депозит даёт доли 1:1, а атака через инфляцию цены доли
@@ -16,6 +16,15 @@ pub fn shares_for_deposit(amount: u64, total_assets: u64, total_shares: u64) -> 
         amount as u128,
         total_shares as u128 + VIRTUAL_SHARES,
         total_assets as u128 + VIRTUAL_ASSETS,
+    )
+}
+
+/// Сколько underlying вернуть за `shares` долей (округление вниз — в пользу vault).
+pub fn assets_for_withdraw(shares: u64, total_assets: u64, total_shares: u64) -> Result<u64> {
+    mul_div(
+        shares as u128,
+        total_assets as u128 + VIRTUAL_ASSETS,
+        total_shares as u128 + VIRTUAL_SHARES,
     )
 }
 
@@ -62,6 +71,23 @@ mod tests {
         // со сдвигом получает ~половину, атакующий теряет донат.
         let victim = shares_for_deposit(1_000_000, 1_000_001, 1).unwrap();
         assert!(victim > 0);
+    }
+
+    #[test]
+    fn withdraw_returns_share_of_assets() {
+        // 300 активов на 150 долей: 50 долей -> ~100 токенов (вниз)
+        assert_eq!(assets_for_withdraw(50, 300, 150).unwrap(), 99);
+        // весь supply -> все активы (минус пыль от сдвига)
+        assert_eq!(assets_for_withdraw(100, 100, 100).unwrap(), 100);
+    }
+
+    #[test]
+    fn round_trip_never_profits() {
+        for (amount, assets, shares) in [(777, 1_000, 900), (1, 5, 3), (10_000, 123_456, 99_999)] {
+            let s = shares_for_deposit(amount, assets, shares).unwrap();
+            let back = assets_for_withdraw(s, assets + amount, shares + s).unwrap();
+            assert!(back <= amount, "deposit -> withdraw не должен давать прибыль");
+        }
     }
 
     #[test]

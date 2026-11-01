@@ -9,6 +9,7 @@
 |---|---|---|
 | 8 | Каркас: аккаунт настроек, PDA пользователя, share-токен | ✅ |
 | 9 | Депозит: пользователь вносит токены и получает share-токены | ✅ |
+| 10 | CPI и вывод: сжигание долей, возврат токенов с подписью PDA | ✅ |
 
 ## Аккаунты
 
@@ -27,6 +28,7 @@
 | `update_config(params)` | Только `authority`: лимит, комиссия (≤ 20%), пауза, адрес пула, смена админа |
 | `open_position()` | Создаёт PDA-позицию пользователя |
 | `deposit(amount, min_shares_out)` | Переводит underlying в хранилище vault и минтит пользователю share-токены |
+| `withdraw(shares, min_amount_out)` | Сжигает share-токены и возвращает пользователю его долю underlying |
 
 Share-mint создаётся как PDA, и его mint authority — тоже PDA vault, поэтому выпускать
 доли может только сама программа. Адрес пула ликвидности (`liquidity_pool`) пока пустой —
@@ -55,15 +57,34 @@ shares = amount * (total_shares + 1) / (total_assets + 1)
   донат в пустой vault больше не позволяет «обнулить» депозит следующего пользователя.
 - Округление вниз — в пользу vault. Вычисления в `u128`, переполнение → `MathOverflow`.
 
+## Вывод (CPI с подписью PDA)
+
+```
+amount = shares * (total_assets + 1) / (total_shares + 1)
+```
+
+1. Проверки: `shares > 0`, `amount > 0`, `amount >= min_amount_out` (slippage).
+2. **CPI `burn`** в Token program: доли сжигаются со счёта пользователя, подписывает сам пользователь.
+3. **CPI `transfer_checked`** в Token program: underlying из хранилища vault пользователю.
+   Владелец хранилища — PDA vault, у которого нет приватного ключа, поэтому программа
+   подписывает вызов через `CpiContext::new_with_signer` с seeds `["vault", underlying_mint, bump]`.
+   Runtime проверяет, что эти seeds с `program_id` дают адрес vault, — так забрать токены
+   из хранилища может только наша программа и только по её правилам.
+4. В `UserPosition` обновляются `total_withdrawn` и `last_action_ts`, эмитится событие `Withdrawn`.
+
+Сначала сжигаем, потом переводим: если burn не прошёл (долей не хватает), транзакция
+откатывается целиком. Пауза вывод **не** блокирует — пользователь всегда может забрать свои средства.
+Цикл deposit → withdraw никогда не даёт прибыли из-за округления вниз (проверено unit-тестом).
+
 ## Структура
 
 ```
 programs/liquidity-vault/src/
 ├── lib.rs              # точки входа
 ├── state.rs            # VaultConfig, UserPosition
-├── math.rs             # конвертация underlying -> shares (+ unit-тесты)
+├── math.rs             # конвертация underlying <-> shares (+ unit-тесты)
 ├── constants.rs, errors.rs, events.rs
-└── instructions/       # initialize_vault, update_config, open_position, deposit
+└── instructions/       # initialize_vault, update_config, open_position, deposit, withdraw
 tests/liquidity-vault.ts  # интеграционные тесты (mocha)
 ```
 
