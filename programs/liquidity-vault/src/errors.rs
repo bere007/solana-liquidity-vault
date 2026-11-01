@@ -16,4 +16,10 @@ pub enum VaultError {
     AmountTooSmall,
     #[msg("Арифметическое переполнение")]
     MathOverflow,
+    #[msg("Пул не совпадает с пулом ликвидности, заданным в настройках vault")]
+    WrongPool,
+    #[msg("Нужно задать минимальную сумму получения (min_amount_out > 0)")]
+    MinAmountOutRequired,
+    #[msg("Входной и выходной токен совпадают")]
+    SameMint,
 }

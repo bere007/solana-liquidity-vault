@@ -23,3 +23,13 @@ pub struct Withdrawn {
     pub amount: u64,
     pub shares: u64,
 }
+
+#[event]
+pub struct Swapped {
+    pub vault: Pubkey,
+    pub pool: Pubkey,
+    pub input_mint: Pubkey,
+    pub output_mint: Pubkey,
+    pub amount_in: u64,
+    pub amount_out: u64,
+}

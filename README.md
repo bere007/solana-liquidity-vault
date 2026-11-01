@@ -11,6 +11,7 @@
 | 9 | Депозит: пользователь вносит токены и получает share-токены | ✅ |
 | 10 | CPI и вывод: сжигание долей, возврат токенов с подписью PDA | ✅ |
 | 11 | AMM и концентрированная ликвидность: свои токены и CLMM-пул Raydium | ✅ |
+| 12 | Swap токенов vault через CLMM-пул Raydium с min_amount_out | ✅ |
 
 ## Аккаунты
 
@@ -30,6 +31,7 @@
 | `open_position()` | Создаёт PDA-позицию пользователя |
 | `deposit(amount, min_shares_out)` | Переводит underlying в хранилище vault и минтит пользователю share-токены |
 | `withdraw(shares, min_amount_out)` | Сжигает share-токены и возвращает пользователю его долю underlying |
+| `swap_via_clmm(amount_in, min_amount_out, sqrt_price_limit_x64)` | Только `authority`: обмен токенов vault через CLMM-пул Raydium |
 
 Share-mint создаётся как PDA, и его mint authority — тоже PDA vault, поэтому выпускать
 доли может только сама программа. Адрес пула ликвидности (`liquidity_pool`) пока пустой —
@@ -85,14 +87,16 @@ programs/liquidity-vault/src/
 ├── state.rs            # VaultConfig, UserPosition
 ├── math.rs             # конвертация underlying <-> shares (+ unit-тесты)
 ├── constants.rs, errors.rs, events.rs
-└── instructions/       # initialize_vault, update_config, open_position, deposit, withdraw
+└── instructions/       # initialize_vault, update_config, open_position, deposit, withdraw, swap
 client/clmm.ts            # хелперы Raydium CLMM: PDA, цена <-> sqrtPriceX64 <-> тик
+client/raydium.ts         # действия с пулом: create_pool, позиция LP, remaining accounts для swap
 idls/raydium_clmm.json    # IDL Raydium CLMM (из devnet, сконвертирован в формат Anchor 0.30+)
 scripts/                  # скрипты для devnet
 docs/amm-clmm.md          # конспект: AMM, концентрированная ликвидность, устройство Raydium CLMM
 tests/
 ├── liquidity-vault.ts    # тесты vault
 ├── raydium-clmm.ts       # тесты пула Raydium CLMM на localnet
+├── vault-clmm.ts         # vault + Raydium: swap и позиции
 └── fixtures/             # программа Raydium CLMM, Metaplex и AmmConfig, выгруженные из devnet
 ```
 
@@ -123,6 +127,29 @@ yarn ts-node scripts/devnet-create-pool.ts
 ```
 
 Кошелёк devnet хранится только локально и в репозиторий не попадает.
+
+## Swap через Raydium
+
+`swap_via_clmm` меняет токены, лежащие на vault, через CLMM-пул Raydium (CPI в `swap_v2`):
+
+- CPI-клиент Raydium генерируется макросом `declare_program!(raydium_clmm)` из
+  `idls/raydium_clmm.json` — без зависимости от крейта Raydium и конфликтов версий.
+- Направление задаётся парой `input_*` / `output_*`: underlying → парный токен и обратно.
+  Оба токен-аккаунта принадлежат PDA vault (выходной ATA создаётся при первом swap),
+  поэтому `payer` в CPI — сам vault, подпись через seeds `["vault", underlying_mint, bump]`.
+- **Slippage.** `min_amount_out` передаётся в Raydium как `other_amount_threshold`
+  (при `is_base_input = true` это минимум на выходе — иначе `TooLittleOutputReceived`).
+  После CPI vault перечитывает свои балансы и ещё раз проверяет, что получено
+  не меньше `min_amount_out`. `min_amount_out = 0` запрещён. Дополнительно можно
+  ограничить цену через `sqrt_price_limit_x64` (0 — без ограничения).
+- Вызывать может только `authority`, и только через пул, заданный в `VaultConfig::liquidity_pool`
+  (`update_config`); пул также проверяется на владельца — программу Raydium.
+- В `remaining_accounts` передаются bitmap extension пула и tick arrays по направлению
+  движения цены — хелпер `swapRemainingAccounts` в [`client/raydium.ts`](client/raydium.ts).
+- Событие `Swapped` фиксирует фактически списанную и полученную сумму.
+
+> Пока стоимость vault (`total_assets`) считается только по underlying на балансе vault:
+> учёт парного токена и позиций в пуле добавится вместе с размещением ликвидности.
 
 ## Запуск
 

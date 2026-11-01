@@ -15,6 +15,9 @@ pub mod state;
 
 pub use instructions::*;
 
+// CPI-клиент Raydium CLMM, сгенерированный из idls/raydium_clmm.json.
+declare_program!(raydium_clmm);
+
 declare_id!("9a94zBboh2ukX4SF7NkzFwCwQnFSVsiPK75n4396G48u");
 
 #[program]
@@ -48,5 +51,16 @@ pub mod liquidity_vault {
     /// Сжечь `shares` share-токенов и получить базовые токены обратно.
     pub fn withdraw(ctx: Context<Withdraw>, shares: u64, min_amount_out: u64) -> Result<()> {
         instructions::withdraw::handler(ctx, shares, min_amount_out)
+    }
+
+    /// Обменять `amount_in` токенов vault через CLMM-пул Raydium,
+    /// получив не меньше `min_amount_out` (только authority).
+    pub fn swap_via_clmm<'info>(
+        ctx: Context<'_, '_, 'info, 'info, SwapViaClmm<'info>>,
+        amount_in: u64,
+        min_amount_out: u64,
+        sqrt_price_limit_x64: u128,
+    ) -> Result<()> {
+        instructions::swap::handler(ctx, amount_in, min_amount_out, sqrt_price_limit_x64)
     }
 }
