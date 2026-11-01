@@ -9,12 +9,17 @@ import {
   mintTo,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { assert, expect } from "chai";
 import { LiquidityVault } from "../target/types/liquidity_vault";
 
 describe("liquidity-vault", () => {
-  const provider = anchor.AnchorProvider.env();
+  const env = anchor.AnchorProvider.env();
+  const provider = new anchor.AnchorProvider(
+    new Connection(env.connection.rpcEndpoint, "confirmed"),
+    env.wallet,
+    { commitment: "confirmed", preflightCommitment: "confirmed" }
+  );
   anchor.setProvider(provider);
   const program = anchor.workspace.LiquidityVault as Program<LiquidityVault>;
   const connection = provider.connection;

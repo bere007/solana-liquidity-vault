@@ -10,6 +10,7 @@
 | 8 | Каркас: аккаунт настроек, PDA пользователя, share-токен | ✅ |
 | 9 | Депозит: пользователь вносит токены и получает share-токены | ✅ |
 | 10 | CPI и вывод: сжигание долей, возврат токенов с подписью PDA | ✅ |
+| 11 | AMM и концентрированная ликвидность: свои токены и CLMM-пул Raydium | ✅ |
 
 ## Аккаунты
 
@@ -85,8 +86,43 @@ programs/liquidity-vault/src/
 ├── math.rs             # конвертация underlying <-> shares (+ unit-тесты)
 ├── constants.rs, errors.rs, events.rs
 └── instructions/       # initialize_vault, update_config, open_position, deposit, withdraw
-tests/liquidity-vault.ts  # интеграционные тесты (mocha)
+client/clmm.ts            # хелперы Raydium CLMM: PDA, цена <-> sqrtPriceX64 <-> тик
+idls/raydium_clmm.json    # IDL Raydium CLMM (из devnet, сконвертирован в формат Anchor 0.30+)
+scripts/                  # скрипты для devnet
+docs/amm-clmm.md          # конспект: AMM, концентрированная ликвидность, устройство Raydium CLMM
+tests/
+├── liquidity-vault.ts    # тесты vault
+├── raydium-clmm.ts       # тесты пула Raydium CLMM на localnet
+└── fixtures/             # программа Raydium CLMM, Metaplex и AmmConfig, выгруженные из devnet
 ```
+
+## Raydium CLMM
+
+Разбор AMM и концентрированной ликвидности — в [docs/amm-clmm.md](docs/amm-clmm.md).
+
+**Localnet.** Программа Raydium CLMM (`devi51mZmdwUJGU9hjN27vEz64Gps7uUefqxg27EAtH`),
+программа Metaplex Token Metadata и `AmmConfig` (index 1: комиссия 0.25%, tick spacing 60)
+выгружены из devnet в `tests/fixtures/` и подключены в `Anchor.toml`, поэтому `anchor test`
+работает с настоящим кодом Raydium без выхода в сеть:
+
+```bash
+solana program dump -u devnet devi51mZmdwUJGU9hjN27vEz64Gps7uUefqxg27EAtH tests/fixtures/raydium_clmm.so
+solana program dump -u devnet metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s tests/fixtures/mpl_token_metadata.so
+solana account -u devnet B9H7TR8PSjJT7nuW2tuPkFC63z7drtMZ4LoCtD7PrCN1 --output json -o tests/fixtures/amm_config.json
+anchor idl fetch devi51mZmdwUJGU9hjN27vEz64Gps7uUefqxg27EAtH --provider.cluster devnet > raw.json
+anchor idl convert raw.json --program-id devi51mZmdwUJGU9hjN27vEz64Gps7uUefqxg27EAtH -o idls/raydium_clmm.json
+```
+
+**Devnet.** Скрипт создаёт два тестовых токена, CLMM-пул с ценой 1:1 и стартовую позицию
+LP в диапазоне ±6%; адреса сохраняются в `deployments/devnet.json`:
+
+```bash
+ANCHOR_PROVIDER_URL=https://api.devnet.solana.com \
+ANCHOR_WALLET=~/.config/solana/devnet.json \
+yarn ts-node scripts/devnet-create-pool.ts
+```
+
+Кошелёк devnet хранится только локально и в репозиторий не попадает.
 
 ## Запуск
 

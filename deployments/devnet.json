@@ -1,0 +1,25 @@
+{
+  "cluster": "devnet",
+  "createdAt": "2026-11-01T18:36:17.206Z",
+  "clmmProgram": "devi51mZmdwUJGU9hjN27vEz64Gps7uUefqxg27EAtH",
+  "ammConfig": "B9H7TR8PSjJT7nuW2tuPkFC63z7drtMZ4LoCtD7PrCN1",
+  "feeRate": "0.25%",
+  "tickSpacing": 60,
+  "token0": "JqGwtL9adY1V53TEBM2rXd1PPSDhkZoxk6QtLNPqq9Q",
+  "token1": "3sxvCJn32WoFBHycb8m9rhsi46UMe7KRB9qWAHBYfjyj",
+  "decimals": 6,
+  "pool": "4JNiGaJ48DVKJV7Qd9FvKUXXcWSrLW3UfhJKFnarUJ2y",
+  "vault0": "Dyt4aXaJHAEffh9aQdgS9hBzYE9fubHHr3mx8eTeXJUK",
+  "vault1": "CZk1ndCc1eGycEsHgCqAFyyT9Ng1pwk9M6WFyQ563Uow",
+  "observation": "GKko5ot1aPci74GtsuuSC1m21vKA5yTLCio6tksoKKMX",
+  "initialPrice": 1,
+  "lpPosition": {
+    "nftMint": "J8JPiBzKUKVbLitVQQKf6xHkrsnoUdRrDDh5fRwCbvgY",
+    "tickLower": -600,
+    "tickUpper": 600
+  },
+  "txs": {
+    "createPool": "yzYxhcAb1ZUjeYWSsaWH2MBe4KVfbw2WCiebK4bcuQR15cwbsLxA2tRHhFVui3AzDYDmzBGtMmAWEMkAKPKntE9",
+    "openPosition": "MpEK5enC3fK2rCPEJjxE7zX7PFeGnTznMkaJ4uuF9CLBBN2RUNpN4SZUHttWq6DFHbH4Ty2nHwhkvvTobAVAK25"
+  }
+}

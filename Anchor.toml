@@ -18,3 +18,17 @@ wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+
+# Raydium CLMM из devnet (программа и AmmConfig index 1) для тестов на localnet.
+[[test.genesis]]
+address = "devi51mZmdwUJGU9hjN27vEz64Gps7uUefqxg27EAtH"
+program = "tests/fixtures/raydium_clmm.so"
+
+[[test.validator.account]]
+address = "B9H7TR8PSjJT7nuW2tuPkFC63z7drtMZ4LoCtD7PrCN1"
+filename = "tests/fixtures/amm_config.json"
+
+# Metaplex Token Metadata: Raydium проверяет, что metadata_program исполняемый.
+[[test.genesis]]
+address = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+program = "tests/fixtures/mpl_token_metadata.so"
