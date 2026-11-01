@@ -1,0 +1,41 @@
+//! Liquidity Vault — каркас DeFi-vault.
+//!
+//! Пользователь вносит базовый токен (underlying) в vault и получает share-токены,
+//! отражающие его долю в общем пуле активов. На следующих этапах средства vault
+//! будут размещаться в пуле ликвидности (`VaultConfig::liquidity_pool`).
+
+use anchor_lang::prelude::*;
+
+pub mod constants;
+pub mod errors;
+pub mod events;
+pub mod instructions;
+pub mod state;
+
+pub use instructions::*;
+
+declare_id!("9a94zBboh2ukX4SF7NkzFwCwQnFSVsiPK75n4396G48u");
+
+#[program]
+pub mod liquidity_vault {
+    use super::*;
+
+    /// Создаёт vault для базового токена: аккаунт настроек, share-mint и хранилище токенов.
+    pub fn initialize_vault(
+        ctx: Context<InitializeVault>,
+        deposit_cap: u64,
+        fee_bps: u16,
+    ) -> Result<()> {
+        instructions::initialize_vault::handler(ctx, deposit_cap, fee_bps)
+    }
+
+    /// Изменение настроек vault (только authority).
+    pub fn update_config(ctx: Context<UpdateConfig>, params: UpdateConfigParams) -> Result<()> {
+        instructions::update_config::handler(ctx, params)
+    }
+
+    /// Создаёт PDA-позицию пользователя в конкретном vault.
+    pub fn open_position(ctx: Context<OpenPosition>) -> Result<()> {
+        instructions::open_position::handler(ctx)
+    }
+}
