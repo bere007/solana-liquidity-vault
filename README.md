@@ -8,6 +8,7 @@
 | Неделя | Тема | Статус |
 |---|---|---|
 | 8 | Каркас: аккаунт настроек, PDA пользователя, share-токен | ✅ |
+| 9 | Депозит: пользователь вносит токены и получает share-токены | ✅ |
 
 ## Аккаунты
 
@@ -25,10 +26,34 @@
 | `initialize_vault(deposit_cap, fee_bps)` | Создаёт конфиг, share-mint (decimals = как у underlying) и хранилище |
 | `update_config(params)` | Только `authority`: лимит, комиссия (≤ 20%), пауза, адрес пула, смена админа |
 | `open_position()` | Создаёт PDA-позицию пользователя |
+| `deposit(amount, min_shares_out)` | Переводит underlying в хранилище vault и минтит пользователю share-токены |
 
 Share-mint создаётся как PDA, и его mint authority — тоже PDA vault, поэтому выпускать
 доли может только сама программа. Адрес пула ликвидности (`liquidity_pool`) пока пустой —
 он задаётся через `update_config`, когда появится интеграция с пулом.
+
+## Депозит
+
+1. Проверки: vault не на паузе, `amount > 0`, после депозита не превышен `deposit_cap`.
+2. Считается количество долей (см. формулу ниже); 0 долей → `AmountTooSmall`,
+   меньше `min_shares_out` → `SlippageExceeded`.
+3. `transfer_checked`: underlying со счёта пользователя в хранилище vault (подписывает пользователь).
+4. `mint_to`: share-токены пользователю (подписывает PDA vault через seeds).
+   Share-аккаунт пользователя (ATA) создаётся автоматически, если его ещё нет.
+5. В `UserPosition` обновляются `total_deposited` и `last_action_ts`, эмитится событие `Deposited`.
+
+### Расчёт долей
+
+```
+shares = amount * (total_shares + 1) / (total_assets + 1)
+```
+
+- `total_assets` — баланс хранилища vault, `total_shares` — supply share-токена.
+- Первый депозит идёт 1:1. Если активы vault выросли (доход пула), доля дорожает
+  и за ту же сумму выдаётся меньше долей — так доход достаётся тем, кто был в vault раньше.
+- Виртуальный сдвиг `+1` (как в ERC-4626 OpenZeppelin) защищает от атаки инфляцией цены доли:
+  донат в пустой vault больше не позволяет «обнулить» депозит следующего пользователя.
+- Округление вниз — в пользу vault. Вычисления в `u128`, переполнение → `MathOverflow`.
 
 ## Структура
 
@@ -36,8 +61,9 @@ Share-mint создаётся как PDA, и его mint authority — тоже 
 programs/liquidity-vault/src/
 ├── lib.rs              # точки входа
 ├── state.rs            # VaultConfig, UserPosition
+├── math.rs             # конвертация underlying -> shares (+ unit-тесты)
 ├── constants.rs, errors.rs, events.rs
-└── instructions/       # initialize_vault, update_config, open_position
+└── instructions/       # initialize_vault, update_config, open_position, deposit
 tests/liquidity-vault.ts  # интеграционные тесты (mocha)
 ```
 
@@ -50,6 +76,7 @@ tests/liquidity-vault.ts  # интеграционные тесты (mocha)
 yarn install
 anchor keys sync     # подставить ID из локального keypair
 anchor test          # сборка + локальный валидатор + тесты
+cargo test -p liquidity-vault   # unit-тесты расчёта долей
 ```
 
 Без локальной установки — через Docker:

@@ -10,6 +10,7 @@ pub mod constants;
 pub mod errors;
 pub mod events;
 pub mod instructions;
+pub mod math;
 pub mod state;
 
 pub use instructions::*;
@@ -37,5 +38,10 @@ pub mod liquidity_vault {
     /// Создаёт PDA-позицию пользователя в конкретном vault.
     pub fn open_position(ctx: Context<OpenPosition>) -> Result<()> {
         instructions::open_position::handler(ctx)
+    }
+
+    /// Внести `amount` базовых токенов и получить share-токены.
+    pub fn deposit(ctx: Context<Deposit>, amount: u64, min_shares_out: u64) -> Result<()> {
+        instructions::deposit::handler(ctx, amount, min_shares_out)
     }
 }

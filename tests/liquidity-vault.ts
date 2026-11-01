@@ -2,8 +2,11 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program, BN } from "@coral-xyz/anchor";
 import {
   createMint,
+  getAccount,
   getAssociatedTokenAddressSync,
   getMint,
+  getOrCreateAssociatedTokenAccount,
+  mintTo,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import { Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
@@ -33,6 +36,29 @@ describe("liquidity-vault", () => {
       program.programId
     )[0];
 
+  const userAta = (mint: PublicKey, owner: PublicKey) =>
+    getAssociatedTokenAddressSync(mint, owner);
+
+  const balance = async (ata: PublicKey) =>
+    Number((await getAccount(connection, ata)).amount);
+
+  const deposit = (user: Keypair, amount: number, minShares = 0) =>
+    program.methods
+      .deposit(new BN(amount), new BN(minShares))
+      .accountsPartial({
+        owner: user.publicKey,
+        vault,
+        userPosition: positionPda(user.publicKey),
+        underlyingMint,
+        shareMint,
+        vaultTokenAccount,
+        userTokenAccount: userAta(underlyingMint, user.publicKey),
+        userShareAccount: userAta(shareMint, user.publicKey),
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([user])
+      .rpc();
+
   const airdrop = async (to: PublicKey) => {
     const sig = await connection.requestAirdrop(to, 2 * LAMPORTS_PER_SOL);
     const bh = await connection.getLatestBlockhash();
@@ -53,6 +79,10 @@ describe("liquidity-vault", () => {
     await Promise.all([airdrop(alice.publicKey), airdrop(bob.publicKey)]);
 
     underlyingMint = await createMint(connection, admin, admin.publicKey, null, DECIMALS);
+    for (const u of [alice, bob]) {
+      const ata = await getOrCreateAssociatedTokenAccount(connection, admin, underlyingMint, u.publicKey);
+      await mintTo(connection, admin, underlyingMint, ata.address, admin, 1_000 * ONE);
+    }
 
     [vault] = PublicKey.findProgramAddressSync(
       [Buffer.from("vault"), underlyingMint.toBuffer()],
@@ -154,6 +184,84 @@ describe("liquidity-vault", () => {
     }
   });
 
+  it("deposit: первый депозит даёт доли 1:1 и создаёт share-аккаунт", async () => {
+    assert.isNull(await connection.getAccountInfo(userAta(shareMint, alice.publicKey)));
+
+    await deposit(alice, 100 * ONE);
+
+    assert.equal(await balance(userAta(shareMint, alice.publicKey)), 100 * ONE);
+    assert.equal(await balance(vaultTokenAccount), 100 * ONE);
+    assert.equal(await balance(userAta(underlyingMint, alice.publicKey)), 900 * ONE);
+    assert.equal(Number((await getMint(connection, shareMint)).supply), 100 * ONE);
+
+    const pos = await program.account.userPosition.fetch(positionPda(alice.publicKey));
+    assert.equal(pos.totalDeposited.toNumber(), 100 * ONE);
+  });
+
+  it("deposit: повторный депозит по той же цене доли", async () => {
+    await deposit(alice, 50 * ONE);
+    assert.equal(await balance(userAta(shareMint, alice.publicKey)), 150 * ONE);
+
+    const pos = await program.account.userPosition.fetch(positionPda(alice.publicKey));
+    assert.equal(pos.totalDeposited.toNumber(), 150 * ONE);
+  });
+
+  it("deposit: доли пропорциональны после роста активов vault", async () => {
+    // Имитируем доход пула: +150 токенов напрямую в хранилище vault.
+    await mintTo(connection, admin, underlyingMint, vaultTokenAccount, admin, 150 * ONE);
+
+    // В vault 300 активов на 150 долей -> доля стоит 2, за 100 токенов Bob получает ~50 долей.
+    await deposit(bob, 100 * ONE);
+    assert.approximately(await balance(userAta(shareMint, bob.publicKey)), 50 * ONE, 1);
+  });
+
+  it("deposit: нулевая сумма отклоняется", async () => {
+    await expectError(deposit(bob, 0), "ZeroAmount");
+  });
+
+  it("deposit: сумма меньше цены одной доли отклоняется", async () => {
+    // Доля стоит ~2 минимальные единицы -> 1 единица даёт 0 долей.
+    await expectError(deposit(bob, 1), "AmountTooSmall");
+  });
+
+  it("deposit: slippage-защита min_shares_out", async () => {
+    await expectError(deposit(bob, 10 * ONE, 10 * ONE), "SlippageExceeded");
+  });
+
+  it("deposit: нельзя превысить deposit_cap", async () => {
+    // В vault 400 из 10_000, депозит 9_700 превышает лимит.
+    await expectError(deposit(alice, 9_700 * ONE), "DepositCapExceeded");
+  });
+
+  it("deposit: без открытой позиции не работает", async () => {
+    const carol = Keypair.generate();
+    await airdrop(carol.publicKey);
+    const ata = await getOrCreateAssociatedTokenAccount(connection, admin, underlyingMint, carol.publicKey);
+    await mintTo(connection, admin, underlyingMint, ata.address, admin, 10 * ONE);
+    await expectError(deposit(carol, 10 * ONE), "AccountNotInitialized");
+  });
+
+  it("deposit: нельзя внести с чужого токен-аккаунта", async () => {
+    await expectError(
+      program.methods
+        .deposit(new BN(1 * ONE), new BN(0))
+        .accountsPartial({
+          owner: bob.publicKey,
+          vault,
+          userPosition: positionPda(bob.publicKey),
+          underlyingMint,
+          shareMint,
+          vaultTokenAccount,
+          userTokenAccount: userAta(underlyingMint, alice.publicKey),
+          userShareAccount: userAta(shareMint, bob.publicKey),
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([bob])
+        .rpc(),
+      "ConstraintTokenOwner"
+    );
+  });
+
   it("update_config: чужой authority отклоняется", async () => {
     await expectError(
       program.methods
@@ -187,5 +295,18 @@ describe("liquidity-vault", () => {
     assert.equal(cfg.feeBps, 250);
     assert.equal(cfg.depositCap.toNumber(), 5_000 * ONE);
     assert.ok(cfg.liquidityPool.equals(pool));
+  });
+
+  it("deposit: на паузе отклоняется, после снятия паузы снова работает", async () => {
+    await expectError(deposit(bob, 1 * ONE), "VaultPaused");
+
+    await program.methods
+      .updateConfig({ newAuthority: null, liquidityPool: null, depositCap: null, feeBps: null, paused: false })
+      .accountsPartial({ authority: admin.publicKey, vault })
+      .rpc();
+
+    const before = await balance(userAta(shareMint, bob.publicKey));
+    await deposit(bob, 2 * ONE);
+    assert.isAbove(await balance(userAta(shareMint, bob.publicKey)), before);
   });
 });
